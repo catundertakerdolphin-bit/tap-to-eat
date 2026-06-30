@@ -235,6 +235,7 @@
         <button class="btn ghost" id="dbgCopy">⧉ Скопировать JSON</button>
         <button class="btn ghost" id="dbgReset">↺ Дефолты</button>
       </div>
+      <button class="btn ghost" id="dbgWipe">🗑 Сбросить прогресс (монеты/апгрейды/рекорд)</button>
     </div>
   </div>
 
@@ -322,6 +323,13 @@ const CHAR_Y = 180;
 
 // ---------- META ----------
 const meta = { coins:0, best:0, rounds:0, up:{saliva:0,jaw:0,gut:0,taste:0,enzymes:0,meta:0}, ach:{} };
+// прогресс между заходами (на хостинге/file:// localStorage работает; в песочнице-артефакте просто молча пропустится)
+const META_KEY='tapToEat.meta.v1';
+function saveMeta(){try{localStorage.setItem(META_KEY,JSON.stringify({coins:meta.coins,best:meta.best,rounds:meta.rounds,up:meta.up,ach:meta.ach}));}catch(e){}}
+function loadMeta(){try{const s=localStorage.getItem(META_KEY);if(!s)return;const m=JSON.parse(s);
+  meta.coins=m.coins||0;meta.best=m.best||0;meta.rounds=m.rounds||0;
+  if(m.up)Object.assign(meta.up,m.up);if(m.ach)Object.assign(meta.ach,m.ach);}catch(e){}}
+function resetMeta(){meta.coins=0;meta.best=0;meta.rounds=0;meta.up={saliva:0,jaw:0,gut:0,taste:0,enzymes:0,meta:0};meta.ach={};saveMeta();}
 
 // ---------- утилиты ----------
 const rnd=(a,b)=>a+Math.random()*(b-a);
@@ -629,6 +637,7 @@ function endRound(){
   $('resCoins').textContent='+'+earned;$('resCombo').textContent='×'+G.maxCombo;$('resGold').textContent=G.goldEaten;
   $('achList').innerHTML=newAch.map(a=>'<div class="ach"><span class="ai">'+a.icon+'</span><div><b>'+a.name+'</b><br><small style="color:var(--muted)">'+a.desc+'</small></div></div>').join('');
   show('results');for(const a of newAch)toast(a.icon,a.name);
+  saveMeta();                                  // монеты/рекорд/раунды/ачивки переживут перезаход
 }
 function checkAch(place){const out=[];const add=(id,icon,name,desc,cond)=>{if(cond&&!meta.ach[id]){meta.ach[id]=1;out.push({icon,name,desc});}};
   add('first','🍽️','Первая трапеза','Завершить раунд',true);add('combo10','🔥','Серия ×10','Набрать комбо ×10',G.maxCombo>=10);
@@ -671,7 +680,7 @@ function buyDraft(id){const u=UPGRADES.find(x=>x.id===id),lv=shopDraft.up[id];if
 function refundDraft(id){const u=UPGRADES.find(x=>x.id===id);if(shopDraft.up[id]<=shopDraft.base[id])return;shopDraft.up[id]--;const c=u.cost(shopDraft.up[id]);shopDraft.coins+=c;shopDraft.spent-=c;renderShop();}
 function tryExitShop(to){shopExitTo=to;if(shopDraft.spent>0)showConfirm();else leaveShop(false);}
 function showConfirm(){const items=UPGRADES.filter(u=>shopDraft.up[u.id]>shopDraft.base[u.id]).map(u=>u.icon+' '+u.name+' +'+(shopDraft.up[u.id]-shopDraft.base[u.id])).join(' · ');$('confirmBody').innerHTML='Потрачено <b>'+shopDraft.spent+' 🪙</b><br><span style="color:var(--muted);font-size:12px">'+items+'</span>';$('confirm').classList.add('show');}
-function leaveShop(commit){if(commit){meta.coins=shopDraft.coins;meta.up=Object.assign({},shopDraft.up);}shopDraft=null;$('confirm').classList.remove('show');if(shopExitTo==='play')startGame();else{screen='results';show('results');}}
+function leaveShop(commit){if(commit){meta.coins=shopDraft.coins;meta.up=Object.assign({},shopDraft.up);saveMeta();}shopDraft=null;$('confirm').classList.remove('show');if(shopExitTo==='play')startGame();else{screen='results';show('results');}}
 
 // ---------- кнопки ----------
 $('btnAgain').onclick=()=>startGame();
@@ -738,6 +747,7 @@ function openDebug(){buildDebug();$('dbgStatus').textContent='';$('debug').class
 $('debugBtn').onclick=openDebug;
 $('dbgClose').onclick=()=>$('debug').classList.remove('show');
 $('dbgReset').onclick=()=>{CFG=structuredClone(DEFAULTS);computeGrid();buildDebug();$('dbgStatus').textContent='Сброшено к дефолтам (не забудь сохранить).';};
+$('dbgWipe').onclick=()=>{resetMeta();renderMenu();$('dbgStatus').textContent='Прогресс сброшен: монеты/апгрейды/рекорд/ачивки.';};
 $('dbgCopy').onclick=async()=>{try{await navigator.clipboard.writeText(JSON.stringify(CFG,null,2));$('dbgStatus').textContent='JSON скопирован в буфер.';}catch(e){$('dbgStatus').textContent='Не вышло скопировать — см. консоль.';console.log(JSON.stringify(CFG,null,2));}};
 $('dbgSave').onclick=async()=>{
   const json=JSON.stringify(CFG,null,2);
@@ -768,13 +778,13 @@ async function loadConfig(){
   if(!loaded){try{const ls=localStorage.getItem('tapToEatConfig');if(ls)loaded=JSON.parse(ls);}catch(e){}}
   CFG=deepMerge(structuredClone(DEFAULTS),loaded||{});
 }
-async function init(){await loadConfig();resize();ambientInit();renderMenu();requestAnimationFrame(loop);}
+async function init(){await loadConfig();loadMeta();resize();ambientInit();renderMenu();requestAnimationFrame(loop);}
 init();
 
 // ---------- тест-хук (детерминированный прогон без rAF) ----------
 window.__game={get screen(){return screen;},get G(){return G;},get meta(){return meta;},get CFG(){return CFG;},
   get grid(){return {gridX,gridY,slotW,slotH,cols:CFG.grid.cols,rows:CFG.grid.rows};},
-  cellPx,eatAt,update,spawnFood,startWith:id=>{char=CHARACTERS.find(c=>c.id===id)||CHARACTERS[0];startGame();}};
+  cellPx,eatAt,update,spawnFood,saveMeta,loadMeta,resetMeta,startWith:id=>{char=CHARACTERS.find(c=>c.id===id)||CHARACTERS[0];startGame();}};
 </script>
 </body>
 </html>
