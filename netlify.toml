@@ -1,0 +1,5 @@
+# Netlify: публикуем статическую игру из папки merged/ (build-команды нет).
+# Подключить: app.netlify.com → Add new site → Import from Git → этот репозиторий.
+# publish-папка подхватится автоматически из этого файла.
+[build]
+  publish = "merged"
